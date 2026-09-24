@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/tts_alarm_model.dart';
 import '../services/alarm_service.dart';
+import '../services/tts_service.dart';
 
 class AlarmRingScreen extends StatefulWidget {
   final TtsAlarmModel alarm;
@@ -36,6 +37,17 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
 
     _pulseAnimation = Tween<double>(begin: 0.94, end: 1.08).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    // Ensure TTS speech loop is actively running at user-set volume
+    TtsService().startAlarmLoop(
+      text: widget.alarm.ttsMessage.isNotEmpty
+          ? widget.alarm.ttsMessage
+          : 'Wake up! It is time for your alarm.',
+      volume: widget.alarm.volume,
+      rate: widget.alarm.speechRate,
+      pitch: widget.alarm.pitch,
+      language: widget.alarm.language,
     );
   }
 

@@ -78,7 +78,7 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   }
 
   Future<void> _previewAlarmVoice(TtsAlarmModel alarm) async {
-    if (_previewingAlarmId == alarm.id) {
+    if (_previewingAlarmId == alarm.id && TtsService().isSpeaking) {
       await TtsService().stop();
       setState(() => _previewingAlarmId = null);
       return;
@@ -86,14 +86,12 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
 
     setState(() => _previewingAlarmId = alarm.id);
     await TtsService().previewSpeech(
-      text: alarm.ttsMessage,
+      text: alarm.ttsMessage.isNotEmpty ? alarm.ttsMessage : 'Wake up! It is time.',
       rate: alarm.speechRate,
       pitch: alarm.pitch,
+      volume: alarm.volume,
       language: alarm.language,
     );
-    if (mounted) {
-      setState(() => _previewingAlarmId = null);
-    }
   }
 
   String _formatRepeatDays(List<int> days) {
@@ -218,7 +216,6 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   Widget _buildAlarmCard(TtsAlarmModel alarm) {
     final timeFormatted = DateFormat('hh:mm').format(alarm.dateTime);
     final amPm = DateFormat('a').format(alarm.dateTime);
-    final isPreviewing = _previewingAlarmId == alarm.id;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -352,14 +349,20 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
                   // Actions: Test Voice & Delete
                   Row(
                     children: [
-                      IconButton(
-                        tooltip: isPreviewing ? 'Stop' : 'Test voice',
-                        icon: Icon(
-                          isPreviewing ? Icons.stop_circle_rounded : Icons.play_circle_fill_rounded,
-                          color: const Color(0xFFF59E0B),
-                          size: 26,
-                        ),
-                        onPressed: () => _previewAlarmVoice(alarm),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: TtsService().isSpeakingNotifier,
+                        builder: (context, isSpeaking, _) {
+                          final isCardSpeaking = isSpeaking && _previewingAlarmId == alarm.id;
+                          return IconButton(
+                            tooltip: isCardSpeaking ? 'Stop voice' : 'Test voice',
+                            icon: Icon(
+                              isCardSpeaking ? Icons.stop_circle_rounded : Icons.play_circle_fill_rounded,
+                              color: isCardSpeaking ? const Color(0xFFEF4444) : const Color(0xFFF59E0B),
+                              size: 28,
+                            ),
+                            onPressed: () => _previewAlarmVoice(alarm),
+                          );
+                        },
                       ),
                       IconButton(
                         tooltip: 'Delete alarm',

@@ -26,8 +26,8 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
   late Set<int> _repeatDays; // 1 = Mon ... 7 = Sun
   late int _snoozeMinutes;
   late bool _isFullScreenPopUp;
+  late double _selectedVolume; // 0.2 to 1.0
 
-  bool _isPlayingPreview = false;
   late AnimationController _waveController;
   Timer? _countdownTimer;
 
@@ -55,6 +55,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       _repeatDays = alarm.repeatDays.toSet();
       _snoozeMinutes = alarm.snoozeDurationMinutes;
       _isFullScreenPopUp = alarm.fullScreenIntent;
+      _selectedVolume = alarm.volume;
     } else {
       _selectedHour = 6;
       _selectedMinute = 30;
@@ -68,11 +69,12 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       _repeatDays = {1, 2, 3, 4, 5};
       _snoozeMinutes = 5;
       _isFullScreenPopUp = true;
+      _selectedVolume = 1.0;
     }
 
     _waveController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
 
     _countdownTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -144,16 +146,14 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
     final text = _textController.text.trim();
     if (text.isEmpty) return;
 
-    if (_isPlayingPreview) {
+    if (TtsService().isSpeaking) {
       await TtsService().stop();
-      setState(() => _isPlayingPreview = false);
     } else {
-      setState(() => _isPlayingPreview = true);
       await TtsService().previewSpeech(
         text: text,
+        volume: _selectedVolume,
         language: _selectedLanguage,
       );
-      setState(() => _isPlayingPreview = false);
     }
   }
 
@@ -239,6 +239,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       ttsMessage: text.isNotEmpty ? text : 'Wake up! It is time for your alarm.',
       label: 'Voice Alarm',
       isEnabled: true,
+      volume: _selectedVolume,
       language: _selectedLanguage,
       repeatDays: _repeatDays.toList(),
       isLoopEnabled: _isLoopOn,
@@ -275,15 +276,15 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
                 physics: const BouncingScrollPhysics(),
                 child: Column(
                   children: [
-                    // Card 1: Time Picker Card
+                    // Card 1: Time Picker Card (Fixed RenderFlex overflow)
                     _buildTimePickerCard(),
                     const SizedBox(height: 16),
 
-                    // Card 2: "Alarm will speak" Card (Gold Border)
+                    // Card 2: "Alarm will speak" Card (Gold Border) with real-time test voice
                     _buildAlarmWillSpeakCard(),
                     const SizedBox(height: 16),
 
-                    // Card 3: Voice & Settings Card
+                    // Card 3: Voice, Volume & Settings Card
                     _buildSettingsCard(),
                     const SizedBox(height: 16),
 
@@ -387,7 +388,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
   Widget _buildTimePickerCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: const Color(0xFF131B2A),
         borderRadius: BorderRadius.circular(24),
@@ -430,89 +431,94 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
               ),
             ],
           ),
+          const SizedBox(height: 18),
+
+          // Digits row: Wrapped in FittedBox to eliminate any RenderFlex overflow on any screen size!
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Hour Box
+                _buildDigitBox(
+                  value: _selectedHour.toString().padLeft(2, '0'),
+                  label: 'Hour',
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: TimeOfDay(
+                        hour: _isAm ? (_selectedHour == 12 ? 0 : _selectedHour) : (_selectedHour == 12 ? 12 : _selectedHour + 12),
+                        minute: _selectedMinute,
+                      ),
+                    );
+                    if (picked != null) {
+                      setState(() {
+                        _isAm = picked.period == DayPeriod.am;
+                        _selectedHour = picked.hourOfPeriod == 0 ? 12 : picked.hourOfPeriod;
+                        _selectedMinute = picked.minute;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(width: 12),
+
+                // Colon
+                const Text(
+                  ':',
+                  style: TextStyle(
+                    color: Color(0xFFF59E0B),
+                    fontSize: 42,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // Minute Box
+                _buildDigitBox(
+                  value: _selectedMinute.toString().padLeft(2, '0'),
+                  label: 'Minute',
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: TimeOfDay(
+                        hour: _isAm ? (_selectedHour == 12 ? 0 : _selectedHour) : (_selectedHour == 12 ? 12 : _selectedHour + 12),
+                        minute: _selectedMinute,
+                      ),
+                    );
+                    if (picked != null) {
+                      setState(() {
+                        _isAm = picked.period == DayPeriod.am;
+                        _selectedHour = picked.hourOfPeriod == 0 ? 12 : picked.hourOfPeriod;
+                        _selectedMinute = picked.minute;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(width: 14),
+
+                // AM / PM Column
+                Column(
+                  children: [
+                    _buildAmPmButton('AM', _isAm),
+                    const SizedBox(height: 8),
+                    _buildAmPmButton('PM', !_isAm),
+                  ],
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 20),
 
-          // Digits row: [06] : [30]  [AM/PM]
+          // Quick adjust buttons row: Each wrapped in Expanded with flexible text to never overflow!
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Hour Box
-              _buildDigitBox(
-                value: _selectedHour.toString().padLeft(2, '0'),
-                label: 'Hour',
-                onTap: () async {
-                  final picked = await showTimePicker(
-                    context: context,
-                    initialTime: TimeOfDay(
-                      hour: _isAm ? (_selectedHour == 12 ? 0 : _selectedHour) : (_selectedHour == 12 ? 12 : _selectedHour + 12),
-                      minute: _selectedMinute,
-                    ),
-                  );
-                  if (picked != null) {
-                    setState(() {
-                      _isAm = picked.period == DayPeriod.am;
-                      _selectedHour = picked.hourOfPeriod == 0 ? 12 : picked.hourOfPeriod;
-                      _selectedMinute = picked.minute;
-                    });
-                  }
-                },
-              ),
-              const SizedBox(width: 12),
-
-              // Colon
-              const Text(
-                ':',
-                style: TextStyle(
-                  color: Color(0xFFF59E0B),
-                  fontSize: 42,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(width: 12),
-
-              // Minute Box
-              _buildDigitBox(
-                value: _selectedMinute.toString().padLeft(2, '0'),
-                label: 'Minute',
-                onTap: () async {
-                  final picked = await showTimePicker(
-                    context: context,
-                    initialTime: TimeOfDay(
-                      hour: _isAm ? (_selectedHour == 12 ? 0 : _selectedHour) : (_selectedHour == 12 ? 12 : _selectedHour + 12),
-                      minute: _selectedMinute,
-                    ),
-                  );
-                  if (picked != null) {
-                    setState(() {
-                      _isAm = picked.period == DayPeriod.am;
-                      _selectedHour = picked.hourOfPeriod == 0 ? 12 : picked.hourOfPeriod;
-                      _selectedMinute = picked.minute;
-                    });
-                  }
-                },
-              ),
-              const SizedBox(width: 16),
-
-              // AM / PM Column
-              Column(
-                children: [
-                  _buildAmPmButton('AM', _isAm),
-                  const SizedBox(height: 8),
-                  _buildAmPmButton('PM', !_isAm),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-
-          // Quick adjust buttons row: [-15 min] [-5 min] [+5 min] [+15 min]
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _buildQuickAdjustChip('-15 min', -15, isHighlighted: false),
+              const SizedBox(width: 6),
               _buildQuickAdjustChip('-5 min', -5, isHighlighted: false),
+              const SizedBox(width: 6),
               _buildQuickAdjustChip('+5 min', 5, isHighlighted: true),
+              const SizedBox(width: 6),
               _buildQuickAdjustChip('+15 min', 15, isHighlighted: false),
             ],
           ),
@@ -530,8 +536,8 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
       child: Container(
-        width: 88,
-        height: 94,
+        width: 82,
+        height: 90,
         decoration: BoxDecoration(
           color: const Color(0xFF162030),
           borderRadius: BorderRadius.circular(18),
@@ -544,9 +550,9 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
               value,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 42,
+                fontSize: 40,
                 fontWeight: FontWeight.bold,
-                letterSpacing: 1.0,
+                letterSpacing: 0.5,
               ),
             ),
             Text(
@@ -572,8 +578,8 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       },
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        width: 60,
-        height: 42,
+        width: 58,
+        height: 40,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF162030),
@@ -595,24 +601,30 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
   }
 
   Widget _buildQuickAdjustChip(String label, int delta, {required bool isHighlighted}) {
-    return InkWell(
-      onTap: () => _adjustMinutes(delta),
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isHighlighted ? const Color(0xFFF59E0B) : const Color(0xFF162030),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isHighlighted ? const Color(0xFFF59E0B) : const Color(0xFF243248),
+    return Expanded(
+      child: InkWell(
+        onTap: () => _adjustMinutes(delta),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isHighlighted ? const Color(0xFFF59E0B) : const Color(0xFF162030),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isHighlighted ? const Color(0xFFF59E0B) : const Color(0xFF243248),
+            ),
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isHighlighted ? Colors.black : const Color(0xFF94A3B8),
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isHighlighted ? Colors.black : const Color(0xFF94A3B8),
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
           ),
         ),
       ),
@@ -729,26 +741,36 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
                 ),
                 const SizedBox(height: 12),
 
-                // Audio waveform visualizer bars
-                Row(
-                  children: List.generate(16, (i) {
-                    final heights = [10, 16, 24, 20, 26, 18, 28, 22, 14, 20, 16, 22, 12, 18, 14, 10];
-                    final isGold = i < 6;
-                    final h = _isPlayingPreview
-                        ? (heights[i] * (_waveController.value * 0.4 + 0.8)).clamp(8.0, 30.0)
-                        : heights[i].toDouble();
+                // Audio waveform visualizer bars: Reacts to isSpeakingNotifier in real-time
+                ValueListenableBuilder<bool>(
+                  valueListenable: TtsService().isSpeakingNotifier,
+                  builder: (context, isSpeaking, _) {
+                    return AnimatedBuilder(
+                      animation: _waveController,
+                      builder: (context, _) {
+                        return Row(
+                          children: List.generate(16, (i) {
+                            final heights = [10, 16, 24, 20, 26, 18, 28, 22, 14, 20, 16, 22, 12, 18, 14, 10];
+                            final isGold = i < 6 || isSpeaking;
+                            final h = isSpeaking
+                                ? (heights[i] * (_waveController.value * 0.4 + 0.8)).clamp(8.0, 32.0)
+                                : heights[i].toDouble();
 
-                    return Expanded(
-                      child: Container(
-                        height: h,
-                        margin: const EdgeInsets.symmetric(horizontal: 2),
-                        decoration: BoxDecoration(
-                          color: isGold ? const Color(0xFFF59E0B) : const Color(0xFF223046),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
+                            return Expanded(
+                              child: Container(
+                                height: h,
+                                margin: const EdgeInsets.symmetric(horizontal: 2),
+                                decoration: BoxDecoration(
+                                  color: isGold ? const Color(0xFFF59E0B) : const Color(0xFF223046),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            );
+                          }),
+                        );
+                      },
                     );
-                  }),
+                  },
                 ),
                 const SizedBox(height: 10),
 
@@ -766,57 +788,63 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
           ),
           const SizedBox(height: 16),
 
-          // Action row: [▶ Test voice]  [Mic]  [Translate]
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: _togglePreviewVoice,
-                    icon: Icon(
-                      _isPlayingPreview ? Icons.stop_rounded : Icons.play_arrow_rounded,
-                      color: Colors.black,
-                      size: 22,
-                    ),
-                    label: Text(
-                      _isPlayingPreview ? 'Stop voice' : 'Test voice',
-                      style: const TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
+          // Action row: Real-time [Test voice / Stop voice] [Mic] [Translate]
+          ValueListenableBuilder<bool>(
+            valueListenable: TtsService().isSpeakingNotifier,
+            builder: (context, isSpeaking, _) {
+              return Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: _togglePreviewVoice,
+                        icon: Icon(
+                          isSpeaking ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                          color: isSpeaking ? Colors.white : Colors.black,
+                          size: 22,
+                        ),
+                        label: Text(
+                          isSpeaking ? 'Stop voice' : 'Test voice',
+                          style: TextStyle(
+                            color: isSpeaking ? Colors.white : Colors.black,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isSpeaking ? const Color(0xFFEF4444) : const Color(0xFFF59E0B),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          elevation: isSpeaking ? 4 : 0,
+                          shadowColor: const Color(0xFFEF4444).withAlpha(120),
+                        ),
                       ),
                     ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFF59E0B),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      elevation: 0,
-                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 10),
+                  const SizedBox(width: 10),
 
-              // Mic Button
-              _buildIconButton(
-                icon: Icons.mic_rounded,
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Speech input feature ready! You can type any sentence.'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(width: 10),
+                  // Mic Button
+                  _buildIconButton(
+                    icon: Icons.mic_rounded,
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Speech input ready! You can type your voice message anytime.'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 10),
 
-              // Language Translate Button
-              _buildIconButton(
-                icon: Icons.translate_rounded,
-                onTap: _openVoicePicker,
-              ),
-            ],
+                  // Language Translate Button
+                  _buildIconButton(
+                    icon: Icons.translate_rounded,
+                    onTap: _openVoicePicker,
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -917,9 +945,9 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
                           ),
                         ),
                         const SizedBox(height: 2),
-                        const Text(
-                          'STREAM_ALARM • Full volume',
-                          style: TextStyle(
+                        Text(
+                          'STREAM_ALARM • ${(_selectedVolume * 100).toInt()}% volume',
+                          style: const TextStyle(
                             color: Color(0xFF94A3B8),
                             fontSize: 12,
                           ),
@@ -933,6 +961,54 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
             ),
           ),
           const SizedBox(height: 20),
+
+          // NEW: Alarm Volume Slider Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.volume_up_rounded, color: Color(0xFFF59E0B), size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Alarm Volume',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                '${(_selectedVolume * 100).toInt()}%',
+                style: const TextStyle(
+                  color: Color(0xFFF59E0B),
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: const Color(0xFFF59E0B),
+              inactiveTrackColor: const Color(0xFF1F2B3E),
+              thumbColor: const Color(0xFFF59E0B),
+              overlayColor: const Color(0xFFF59E0B).withAlpha(40),
+              trackHeight: 4,
+            ),
+            child: Slider(
+              value: _selectedVolume,
+              min: 0.2,
+              max: 1.0,
+              divisions: 8,
+              onChanged: (val) {
+                setState(() => _selectedVolume = val);
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
 
           // Repeat Row Header
           const Text(

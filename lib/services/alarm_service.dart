@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:alarm/alarm.dart';
 import 'package:flutter/foundation.dart';
 import '../models/tts_alarm_model.dart';
+import 'storage_service.dart';
 import 'tts_service.dart';
 
 class AlarmService {
@@ -40,23 +41,37 @@ class AlarmService {
     });
   }
 
-  void _handleAlarmRing(AlarmSettings settings) {
+  Future<void> _handleAlarmRing(AlarmSettings settings) async {
     debugPrint('Alarm ringing for ID: ${settings.id}');
-    final textToSpeak = settings.notificationSettings.body;
-    final title = settings.notificationSettings.title;
+    
+    // Look up the full saved alarm model for custom volume, language, and settings
+    final allAlarms = await StorageService.loadAlarms();
+    final model = allAlarms.firstWhere(
+      (a) => a.id == settings.id,
+      orElse: () => TtsAlarmModel(
+        id: settings.id,
+        dateTime: settings.dateTime,
+        ttsMessage: settings.notificationSettings.body,
+        label: settings.notificationSettings.title,
+      ),
+    );
 
-    // Start repeating TTS custom message
-    _ttsService.startAlarmLoop(
-      text: textToSpeak.isNotEmpty ? textToSpeak : 'Wake up! It is time for your alarm.',
+    final textToSpeak = model.ttsMessage.isNotEmpty
+        ? model.ttsMessage
+        : (settings.notificationSettings.body.isNotEmpty
+            ? settings.notificationSettings.body
+            : 'Wake up! It is time for your alarm.');
+
+    // Start repeating TTS custom message at full user-defined volume with audio ducking
+    await _ttsService.startAlarmLoop(
+      text: textToSpeak,
+      volume: model.volume,
+      rate: model.speechRate,
+      pitch: model.pitch,
+      language: model.language,
     );
 
     if (onAlarmTriggered != null) {
-      final model = TtsAlarmModel(
-        id: settings.id,
-        dateTime: settings.dateTime,
-        ttsMessage: textToSpeak,
-        label: title,
-      );
       onAlarmTriggered!(model);
     }
   }
@@ -69,16 +84,17 @@ class AlarmService {
         dateTime: model.dateTime,
         // Silent audio asset keeps native Android AlarmManager foreground service & wake-lock active
         assetAudioPath: 'assets/audio/silent.wav',
-        loopAudio: false,
+        // loopAudio must be true so Android foreground service doesn't terminate and mute audio when unlocked
+        loopAudio: true,
         vibrate: true,
-        volumeSettings: const VolumeSettings.fixed(
-          volume: 0.1,
-          volumeEnforced: true,
+        volumeSettings: VolumeSettings.fixed(
+          volume: model.volume.clamp(0.1, 1.0),
+          volumeEnforced: true, // Respects user's set volume instead of forcing 10%
         ),
         warningNotificationOnKill: true,
         androidFullScreenIntent: true,
         notificationSettings: NotificationSettings(
-          title: model.label.isNotEmpty ? model.label : 'TTS Alarm',
+          title: model.label.isNotEmpty ? model.label : 'Voice Alarm',
           body: model.ttsMessage.isNotEmpty ? model.ttsMessage : 'Time to wake up!',
           stopButton: 'Stop Alarm',
           icon: 'notification_icon',
@@ -86,7 +102,7 @@ class AlarmService {
       );
 
       final success = await Alarm.set(alarmSettings: alarmSettings);
-      debugPrint('Scheduled alarm id: ${model.id}, success: $success at ${model.dateTime}');
+      debugPrint('Scheduled alarm id: ${model.id}, success: $success at ${model.dateTime} volume: ${model.volume}');
       return success;
     } catch (e) {
       debugPrint('Error scheduling alarm: $e');
