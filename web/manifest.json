@@ -1,6 +1,6 @@
 {
-    "name": "tts_alarm",
-    "short_name": "tts_alarm",
+    "name": "TTS Alarm",
+    "short_name": "TTS Alarm",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
