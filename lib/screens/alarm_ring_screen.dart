@@ -113,7 +113,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
                           const Icon(Icons.graphic_eq_rounded, color: Color(0xFFF59E0B), size: 18),
                           const SizedBox(width: 8),
                           Text(
-                            widget.alarm.label.isNotEmpty ? widget.alarm.label : 'Voice Alarm',
+                            widget.alarm.label.isNotEmpty ? widget.alarm.label : 'TTS Alarm',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 15,

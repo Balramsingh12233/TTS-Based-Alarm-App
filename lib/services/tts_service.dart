@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 class TtsService {
@@ -8,6 +9,8 @@ class TtsService {
   TtsService._internal();
 
   final FlutterTts _flutterTts = FlutterTts();
+  // Direct channel to flutter_tts plugin for methods not exposed in Dart API
+  static const MethodChannel _ttsChannel = MethodChannel('flutter_tts');
   bool _isLooping = false;
   bool _isSpeaking = false;
   String? _currentMessage;
@@ -24,7 +27,13 @@ class TtsService {
       // Set awaitSpeakCompletion to ensure proper lifecycle callback timing
       await _flutterTts.awaitSpeakCompletion(true);
       await _flutterTts.setSharedInstance(true);
-      
+
+      // *** CRITICAL FIX: Route TTS through STREAM_ALARM, not STREAM_MUSIC ***
+      // Calls the patched native method in flutter_tts plugin:
+      //   AudioAttributes.USAGE_ALARM + CONTENT_TYPE_SONIFICATION + FLAG_AUDIBILITY_ENFORCED
+      // This bypasses ALL Android AudioFocus rules — TTS plays on BOTH locked & unlocked screens.
+      await _ttsChannel.invokeMethod('setAudioAttributesForAlarm');
+
       await _flutterTts.setIosAudioCategory(
         IosTextToSpeechAudioCategory.playback,
         [
@@ -52,7 +61,6 @@ class TtsService {
           if (_isLooping) {
             _isSpeaking = true;
             isSpeakingNotifier.value = true;
-            // focus: true ducks background music so speech is crystal clear
             await _flutterTts.speak(_currentMessage!, focus: true);
           }
         } else {

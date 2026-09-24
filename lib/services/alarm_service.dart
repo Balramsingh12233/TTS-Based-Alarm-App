@@ -94,7 +94,7 @@ class AlarmService {
         warningNotificationOnKill: true,
         androidFullScreenIntent: true,
         notificationSettings: NotificationSettings(
-          title: model.label.isNotEmpty ? model.label : 'Voice Alarm',
+          title: model.label.isNotEmpty ? model.label : 'TTS Alarm',
           body: model.ttsMessage.isNotEmpty ? model.ttsMessage : 'Time to wake up!',
           stopButton: 'Stop Alarm',
           icon: 'notification_icon',

@@ -73,7 +73,7 @@ class TtsAlarmApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
-      title: 'TTS Voice Alarm',
+      title: 'TTS Alarm',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,

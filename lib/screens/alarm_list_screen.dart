@@ -166,7 +166,7 @@ class _AlarmListScreenState extends State<AlarmListScreen>
         elevation: 4,
         icon: const Icon(Icons.add_alarm_rounded, color: Colors.black, size: 24),
         label: const Text(
-          'New Voice Alarm',
+          'New TTS Alarm',
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 15),
         ),
       ),
@@ -183,7 +183,7 @@ class _AlarmListScreenState extends State<AlarmListScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'SMART OFFLINE ALARMS',
+                'TEXT TO SPEECH ALARM',
                 style: TextStyle(
                   color: Color(0xFF64748B),
                   fontSize: 11,
@@ -193,7 +193,7 @@ class _AlarmListScreenState extends State<AlarmListScreen>
               ),
               SizedBox(height: 4),
               Text(
-                'Voice Alarms',
+                'TTS Alarm',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 24,
@@ -424,7 +424,7 @@ class _AlarmListScreenState extends State<AlarmListScreen>
             ),
             const SizedBox(height: 24),
             const Text(
-              'No Voice Alarms Yet',
+              'No TTS Alarms Yet',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 22,
@@ -446,7 +446,7 @@ class _AlarmListScreenState extends State<AlarmListScreen>
               onPressed: () => _openCreateScreen(),
               icon: const Icon(Icons.add_alarm_rounded, color: Colors.black),
               label: const Text(
-                'Create First Voice Alarm',
+                'Create First TTS Alarm',
                 style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(

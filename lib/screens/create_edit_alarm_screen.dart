@@ -239,7 +239,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       id: id,
       dateTime: target,
       ttsMessage: text.isNotEmpty ? text : 'Wake up! It is time for your alarm.',
-      label: 'Voice Alarm',
+      label: 'TTS Alarm',
       isEnabled: true,
       volume: _selectedVolume,
       language: _selectedLanguage,
@@ -343,7 +343,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
                     ),
                   ),
                   const Text(
-                    'Voice Alarm',
+                    'TTS Alarm',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 20,
