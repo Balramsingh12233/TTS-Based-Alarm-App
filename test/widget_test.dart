@@ -4,6 +4,6 @@ import 'package:tts_alarm/main.dart';
 void main() {
   testWidgets('TTS Alarm App smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(const TtsAlarmApp());
-    expect(find.text('TTS Voice Alarms'), findsOneWidget);
+    expect(find.text('Voice Alarms'), findsOneWidget);
   });
 }

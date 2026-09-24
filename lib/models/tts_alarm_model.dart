@@ -12,6 +12,10 @@ class TtsAlarmModel {
   final double volume;
   final String language;
   final int snoozeDurationMinutes;
+  final List<int> repeatDays; // 1 = Mon, 7 = Sun
+  final bool isLoopEnabled;
+  final String voiceName;
+  final bool fullScreenIntent;
 
   const TtsAlarmModel({
     required this.id,
@@ -22,8 +26,12 @@ class TtsAlarmModel {
     this.speechRate = 0.5,
     this.pitch = 1.0,
     this.volume = 1.0,
-    this.language = 'en-US',
+    this.language = 'hi-IN',
     this.snoozeDurationMinutes = 5,
+    this.repeatDays = const [1, 2, 3, 4, 5],
+    this.isLoopEnabled = true,
+    this.voiceName = 'Aarav • Male • Hindi',
+    this.fullScreenIntent = true,
   });
 
   /// Copy with helper for immutability
@@ -38,6 +46,10 @@ class TtsAlarmModel {
     double? volume,
     String? language,
     int? snoozeDurationMinutes,
+    List<int>? repeatDays,
+    bool? isLoopEnabled,
+    String? voiceName,
+    bool? fullScreenIntent,
   }) {
     return TtsAlarmModel(
       id: id ?? this.id,
@@ -50,6 +62,10 @@ class TtsAlarmModel {
       volume: volume ?? this.volume,
       language: language ?? this.language,
       snoozeDurationMinutes: snoozeDurationMinutes ?? this.snoozeDurationMinutes,
+      repeatDays: repeatDays ?? this.repeatDays,
+      isLoopEnabled: isLoopEnabled ?? this.isLoopEnabled,
+      voiceName: voiceName ?? this.voiceName,
+      fullScreenIntent: fullScreenIntent ?? this.fullScreenIntent,
     );
   }
 
@@ -65,6 +81,10 @@ class TtsAlarmModel {
       'volume': volume,
       'language': language,
       'snoozeDurationMinutes': snoozeDurationMinutes,
+      'repeatDays': repeatDays,
+      'isLoopEnabled': isLoopEnabled,
+      'voiceName': voiceName,
+      'fullScreenIntent': fullScreenIntent,
     };
   }
 
@@ -78,8 +98,14 @@ class TtsAlarmModel {
       speechRate: (map['speechRate'] as num?)?.toDouble() ?? 0.5,
       pitch: (map['pitch'] as num?)?.toDouble() ?? 1.0,
       volume: (map['volume'] as num?)?.toDouble() ?? 1.0,
-      language: (map['language'] as String?) ?? 'en-US',
+      language: (map['language'] as String?) ?? 'hi-IN',
       snoozeDurationMinutes: (map['snoozeDurationMinutes'] as int?) ?? 5,
+      repeatDays: map['repeatDays'] != null
+          ? List<int>.from(map['repeatDays'] as List)
+          : const [1, 2, 3, 4, 5],
+      isLoopEnabled: (map['isLoopEnabled'] as bool?) ?? true,
+      voiceName: (map['voiceName'] as String?) ?? 'Aarav • Male • Hindi',
+      fullScreenIntent: (map['fullScreenIntent'] as bool?) ?? true,
     );
   }
 
