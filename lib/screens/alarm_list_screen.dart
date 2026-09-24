@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../main.dart' show pendingAlarm, navigateToAlarmScreen;
 import '../models/tts_alarm_model.dart';
 import '../services/alarm_service.dart';
 import '../services/permission_service.dart';
@@ -14,7 +15,8 @@ class AlarmListScreen extends StatefulWidget {
   State<AlarmListScreen> createState() => _AlarmListScreenState();
 }
 
-class _AlarmListScreenState extends State<AlarmListScreen> {
+class _AlarmListScreenState extends State<AlarmListScreen>
+    with WidgetsBindingObserver {
   List<TtsAlarmModel> _alarms = [];
   bool _isLoading = true;
   int? _previewingAlarmId;
@@ -22,7 +24,26 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initAndLoad();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Called when app lifecycle state changes (foreground/background)
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Show any alarm that fired while app was in background on unlocked screen
+      final pending = pendingAlarm;
+      if (pending != null) {
+        navigateToAlarmScreen(pending);
+      }
+    }
   }
 
   Future<void> _initAndLoad() async {

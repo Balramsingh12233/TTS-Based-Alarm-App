@@ -23,6 +23,13 @@ class PermissionService {
         await Permission.ignoreBatteryOptimizations.request();
       }
 
+      // 4. System Alert Window (Allows alarm popup over lock screen & other apps when awake)
+      // This is the key permission for full-screen alarm on unlocked/awake screen
+      final overlayStatus = await Permission.systemAlertWindow.status;
+      if (!overlayStatus.isGranted) {
+        await Permission.systemAlertWindow.request();
+      }
+
       return true;
     } catch (e) {
       debugPrint('Error requesting permissions: $e');

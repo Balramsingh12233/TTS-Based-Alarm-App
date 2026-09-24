@@ -39,16 +39,21 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // Ensure TTS speech loop is actively running at user-set volume
-    TtsService().startAlarmLoop(
-      text: widget.alarm.ttsMessage.isNotEmpty
-          ? widget.alarm.ttsMessage
-          : 'Wake up! It is time for your alarm.',
-      volume: widget.alarm.volume,
-      rate: widget.alarm.speechRate,
-      pitch: widget.alarm.pitch,
-      language: widget.alarm.language,
-    );
+    // Only start TTS loop if AlarmService hasn't already started it.
+    // AlarmService starts TTS when alarm fires; AlarmRingScreen is a UI overlay on top.
+    // If screen opens via notification tap (app resume), AlarmService may not have fired yet,
+    // so we fall back to starting TTS here as a safety net.
+    if (!TtsService().isLooping) {
+      TtsService().startAlarmLoop(
+        text: widget.alarm.ttsMessage.isNotEmpty
+            ? widget.alarm.ttsMessage
+            : 'Wake up! It is time for your alarm.',
+        volume: widget.alarm.volume,
+        rate: widget.alarm.speechRate,
+        pitch: widget.alarm.pitch,
+        language: widget.alarm.language,
+      );
+    }
   }
 
   void _updateTime() {

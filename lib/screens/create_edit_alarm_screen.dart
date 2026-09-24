@@ -30,6 +30,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
 
   late AnimationController _waveController;
   Timer? _countdownTimer;
+  Timer? _volumePreviewDebounce; // Debounce for real-time volume preview
 
   final List<Map<String, String>> _availableVoices = [
     {'name': 'Aarav • Male • Hindi', 'lang': 'hi-IN'},
@@ -86,6 +87,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
   void dispose() {
     _waveController.dispose();
     _countdownTimer?.cancel();
+    _volumePreviewDebounce?.cancel();
     _textController.dispose();
     TtsService().stop();
     super.dispose();
@@ -1005,6 +1007,22 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
               divisions: 8,
               onChanged: (val) {
                 setState(() => _selectedVolume = val);
+              },
+              onChangeEnd: (val) {
+                // Real-time voice preview at selected volume when slider is released
+                _volumePreviewDebounce?.cancel();
+                _volumePreviewDebounce = Timer(const Duration(milliseconds: 100), () {
+                  final text = _textController.text.trim();
+                  if (text.isNotEmpty) {
+                    TtsService().previewSpeech(
+                      text: text,
+                      volume: val,
+                      rate: widget.existingAlarm?.speechRate ?? 0.5,
+                      pitch: widget.existingAlarm?.pitch ?? 1.0,
+                      language: _selectedLanguage,
+                    );
+                  }
+                });
               },
             ),
           ),
