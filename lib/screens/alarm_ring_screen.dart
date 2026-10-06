@@ -52,6 +52,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
         rate: widget.alarm.speechRate,
         pitch: widget.alarm.pitch,
         language: widget.alarm.language,
+        voiceName: widget.alarm.voiceName,
       );
     }
   }

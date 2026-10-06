@@ -37,10 +37,8 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
   Timer? _volumePreviewDebounce; // Debounce for real-time volume preview
 
   final List<Map<String, String>> _availableVoices = [
-    {'name': 'Aarav • Male • Hindi', 'lang': 'hi-IN'},
-    {'name': 'Priya • Female • Hindi', 'lang': 'hi-IN'},
-    {'name': 'Alex • Male • English', 'lang': 'en-US'},
-    {'name': 'Sophia • Female • English', 'lang': 'en-US'},
+    {'name': 'Aarav • Hindi', 'lang': 'hi-IN'},
+    {'name': 'Alex • English', 'lang': 'en-US'},
   ];
 
   @override
@@ -58,7 +56,10 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
         text: (alarm.label == 'TTS Alarm' || alarm.label == 'Alarm') ? '' : alarm.label,
       );
       _isLoopOn = alarm.isLoopEnabled;
-      _selectedVoice = alarm.voiceName;
+      final rawVoice = alarm.voiceName;
+      _selectedVoice = (rawVoice.contains('Alex') || rawVoice.toLowerCase().contains('english'))
+          ? 'Alex • English'
+          : 'Aarav • Hindi';
       _selectedLanguage = alarm.language;
       _repeatDays = alarm.repeatDays.toSet();
       _snoozeMinutes = alarm.snoozeDurationMinutes;
@@ -75,7 +76,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       );
       _labelController = TextEditingController();
       _isLoopOn = true;
-      _selectedVoice = 'Aarav • Male • Hindi';
+      _selectedVoice = 'Aarav • Hindi';
       _selectedLanguage = 'hi-IN';
       _repeatDays = {1, 2, 3, 4, 5, 6, 7}; // Default repeats everyday for next day guarantee
       _snoozeMinutes = 5;
@@ -217,6 +218,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
         text: text,
         volume: _selectedVolume,
         language: _selectedLanguage,
+        voiceName: _selectedVoice,
       );
     }
   }
@@ -235,52 +237,109 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Select TTS Voice',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Select TTS Voice',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Natural Voices',
+                      style: TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               ..._availableVoices.map((voice) {
                 final isSelected = _selectedVoice == voice['name'];
+                final isHindi = voice['lang'] == 'hi-IN';
+
                 return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
+                  margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
                     color: isSelected ? const Color(0xFFF59E0B).withAlpha(35) : const Color(0xFF1A2333),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: isSelected ? const Color(0xFFF59E0B) : Colors.transparent,
+                      color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF222F45),
                     ),
                   ),
                   child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                     leading: CircleAvatar(
-                      backgroundColor: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF26334D),
+                      radius: 20,
+                      backgroundColor: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF1E3A5F),
                       child: Icon(
                         Icons.record_voice_over_rounded,
-                        color: isSelected ? Colors.black : Colors.white,
-                        size: 20,
+                        color: isSelected ? Colors.black : const Color(0xFF60A5FA),
+                        size: 22,
                       ),
                     ),
                     title: Text(
                       voice['name']!,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
                     subtitle: Text(
-                      'Language: ${voice['lang']}',
-                      style: const TextStyle(color: Colors.white54, fontSize: 12),
+                      isHindi ? 'Natural voice • Hindi' : 'Natural voice • English',
+                      style: TextStyle(
+                        color: isSelected ? const Color(0xFFFBBF24) : Colors.white54,
+                        fontSize: 12,
+                      ),
                     ),
-                    trailing: isSelected
-                        ? const Icon(Icons.check_circle_rounded, color: Color(0xFFF59E0B))
-                        : null,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Quick Voice Test button right in the picker
+                        IconButton(
+                          icon: const Icon(Icons.volume_up_rounded, color: Color(0xFFF59E0B), size: 22),
+                          tooltip: 'Listen sample',
+                          onPressed: () {
+                            final sampleText = isHindi
+                                ? 'नमस्ते! यह आपकी अलार्म आवाज़ है।'
+                                : 'Hello! This is your voice alarm preview.';
+                            TtsService().previewSpeech(
+                              text: sampleText,
+                              volume: _selectedVolume,
+                              language: voice['lang']!,
+                              voiceName: voice['name']!,
+                            );
+                          },
+                        ),
+                        if (isSelected)
+                          const Icon(Icons.check_circle_rounded, color: Color(0xFFF59E0B), size: 22),
+                      ],
+                    ),
                     onTap: () {
                       setState(() {
                         _selectedVoice = voice['name']!;
                         _selectedLanguage = voice['lang']!;
                       });
                       Navigator.pop(ctx);
+                      // Play instant preview with newly selected voice
+                      final sampleText = isHindi
+                          ? 'नमस्ते! यह आपकी अलार्म आवाज़ है।'
+                          : 'Hello! This is your voice alarm preview.';
+                      TtsService().previewSpeech(
+                        text: sampleText,
+                        volume: _selectedVolume,
+                        language: voice['lang']!,
+                        voiceName: voice['name']!,
+                      );
                     },
                   ),
                 );
@@ -1126,6 +1185,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
                       rate: widget.existingAlarm?.speechRate ?? 0.5,
                       pitch: widget.existingAlarm?.pitch ?? 1.0,
                       language: _selectedLanguage,
+                      voiceName: _selectedVoice,
                     );
                   }
                 });

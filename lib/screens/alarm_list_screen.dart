@@ -123,6 +123,7 @@ class _AlarmListScreenState extends State<AlarmListScreen>
       pitch: alarm.pitch,
       volume: alarm.volume,
       language: alarm.language,
+      voiceName: alarm.voiceName,
     );
   }
 

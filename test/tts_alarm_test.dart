@@ -1,7 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tts_alarm/models/tts_alarm_model.dart';
+import 'package:tts_alarm/services/tts_service.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('TtsAlarmModel - Next Occurrence and Specific Date Scheduling', () {
     test('Specific date alarm returns exact date and time', () {
       final specificDateTime = DateTime(2026, 10, 25, 14, 30);
@@ -126,6 +129,32 @@ void main() {
       final serialized = newModel.toMap();
       expect(serialized['isSpecificDate'], isTrue);
       expect(serialized['label'], equals('Dentist Appointment'));
+    });
+  });
+
+  group('TtsService - Voice Resolution', () {
+    final tts = TtsService();
+
+    setUp(() {
+      tts.setDeviceVoicesForTesting([
+        {'name': 'hi-in-x-cfc#male_1-local', 'locale': 'hi-IN'},
+        {'name': 'hi-in-x-cfc-local', 'locale': 'hi-IN'},
+        {'name': 'hi-in-x-hia-local', 'locale': 'hi-IN'},
+        {'name': 'en-us-x-iom-local', 'locale': 'en-US'},
+        {'name': 'en-us-x-sfg-local', 'locale': 'en-US'},
+      ]);
+    });
+
+    test('Hindi voice resolves to natural voice (cfc)', () {
+      final hindiVoice = tts.findBestVoice(language: 'hi-IN');
+      expect(hindiVoice, isNotNull);
+      expect(hindiVoice!['name'], equals('hi-in-x-cfc#male_1-local'));
+    });
+
+    test('English voice resolves to natural voice (iom)', () {
+      final englishVoice = tts.findBestVoice(language: 'en-US');
+      expect(englishVoice, isNotNull);
+      expect(englishVoice!['name'], equals('en-us-x-iom-local'));
     });
   });
 }

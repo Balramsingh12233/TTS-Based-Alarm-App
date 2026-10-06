@@ -21,6 +21,20 @@ class TtsService {
   bool get isSpeaking => _isSpeaking;
   bool get isLooping => _isLooping;
 
+  List<Map<String, String>> _deviceVoices = [];
+
+  List<Map<String, String>> get deviceVoices => _deviceVoices;
+
+  @visibleForTesting
+  void setDeviceVoicesForTesting(List<Map<String, String>> voices) {
+    _deviceVoices = voices;
+  }
+
+  @visibleForTesting
+  Map<String, String>? findBestVoice({required String language, bool isMale = true}) {
+    return _findBestVoice(language: language);
+  }
+
   /// Initialize TTS engine & configure audio focus
   Future<void> init() async {
     try {
@@ -47,6 +61,9 @@ class TtsService {
       await _flutterTts.setSpeechRate(0.5);
       await _flutterTts.setVolume(1.0);
       await _flutterTts.setPitch(1.0);
+
+      // Load all native TTS voices installed on the device
+      await _loadDeviceVoices();
 
       _flutterTts.setStartHandler(() {
         _isSpeaking = true;
@@ -83,6 +100,108 @@ class TtsService {
     }
   }
 
+  Future<void> _loadDeviceVoices() async {
+    try {
+      dynamic voices = await _flutterTts.getVoices;
+      if (voices == null || (voices is List && voices.isEmpty)) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        voices = await _flutterTts.getVoices;
+      }
+      if (voices is List) {
+        _deviceVoices = voices.map((v) {
+          if (v is Map) {
+            return {
+              'name': (v['name'] ?? '').toString(),
+              'locale': (v['locale'] ?? '').toString(),
+            };
+          }
+          return <String, String>{};
+        }).where((m) => m.isNotEmpty && m['name']!.isNotEmpty).toList();
+        debugPrint('Loaded ${_deviceVoices.length} native device TTS voices');
+      }
+    } catch (e) {
+      debugPrint('Error loading device voices: $e');
+    }
+  }
+
+  /// Finds the best native voice on the device for the desired language.
+  Map<String, String>? _findBestVoice({required String language}) {
+    if (_deviceVoices.isEmpty) return null;
+
+    final langPrefix = language.split('-').first.toLowerCase(); // 'hi' or 'en'
+    final matchingLangVoices = _deviceVoices.where((v) {
+      final loc = (v['locale'] ?? '').toLowerCase().replaceAll('_', '-');
+      return loc.startsWith(langPrefix);
+    }).toList();
+
+    if (matchingLangVoices.isEmpty) return null;
+
+    // Match the exact natural voice that rings clearly and authentically (cfc, male, etc.)
+    final candidate = matchingLangVoices.firstWhere(
+      (v) {
+        final n = (v['name'] ?? '').toLowerCase();
+        return n.contains('cfc') ||
+            n.contains('male') ||
+            n.contains('#m') ||
+            n.contains('-m-') ||
+            n.contains('man') ||
+            n.contains('-hib') ||
+            n.contains('-hid') ||
+            n.contains('-iom') ||
+            n.contains('-iob') ||
+            n.contains('-end') ||
+            n.contains('-enc');
+      },
+      orElse: () => <String, String>{},
+    );
+
+    if (candidate.isNotEmpty) {
+      return candidate;
+    }
+
+    return matchingLangVoices.first;
+  }
+
+  /// Configures native voice selection and acoustic settings
+  Future<void> _applyVoiceAndPitch({
+    required String? voiceName,
+    required String language,
+    required double pitch,
+    required double rate,
+    required double volume,
+  }) async {
+    // 1. Ensure device voices are loaded
+    if (_deviceVoices.isEmpty) {
+      await _loadDeviceVoices();
+    }
+
+    // 2. Language selection
+    await _flutterTts.setLanguage(language);
+
+    // 3. Find and bind distinct native voice
+    final selectedDeviceVoice = _findBestVoice(language: language);
+
+    if (selectedDeviceVoice != null &&
+        selectedDeviceVoice['name'] != null &&
+        selectedDeviceVoice['name']!.isNotEmpty) {
+      try {
+        await _flutterTts.setVoice({
+          'name': selectedDeviceVoice['name']!,
+          'locale': selectedDeviceVoice['locale'] ?? language,
+        });
+        debugPrint('Applied native voice: ${selectedDeviceVoice['name']} for $voiceName');
+      } catch (e) {
+        debugPrint('Error applying native voice: $e');
+      }
+    }
+
+    // 4. Acoustic Pitch & Rate Tuning:
+    // Natural pitch 1.0 delivers the full, crisp, authentic tone without distortion
+    await _flutterTts.setPitch(1.0);
+    await _flutterTts.setSpeechRate(rate);
+    await _flutterTts.setVolume(volume.clamp(0.1, 1.0));
+  }
+
   /// Start repeating the custom text continuously until user dismisses or snoozes
   Future<void> startAlarmLoop({
     required String text,
@@ -90,15 +209,19 @@ class TtsService {
     double pitch = 1.0,
     double volume = 1.0,
     String language = 'hi-IN',
+    String? voiceName,
   }) async {
     _isLooping = true;
     _currentMessage = text;
 
     try {
-      await _flutterTts.setLanguage(language);
-      await _flutterTts.setSpeechRate(rate);
-      await _flutterTts.setPitch(pitch);
-      await _flutterTts.setVolume(volume.clamp(0.1, 1.0));
+      await _applyVoiceAndPitch(
+        voiceName: voiceName,
+        language: language,
+        pitch: pitch,
+        rate: rate,
+        volume: volume,
+      );
 
       _isSpeaking = true;
       isSpeakingNotifier.value = true;
@@ -132,15 +255,19 @@ class TtsService {
     double pitch = 1.0,
     double volume = 1.0,
     String language = 'hi-IN',
+    String? voiceName,
   }) async {
     _isLooping = false;
     await stop();
 
     try {
-      await _flutterTts.setLanguage(language);
-      await _flutterTts.setSpeechRate(rate);
-      await _flutterTts.setPitch(pitch);
-      await _flutterTts.setVolume(volume.clamp(0.1, 1.0));
+      await _applyVoiceAndPitch(
+        voiceName: voiceName,
+        language: language,
+        pitch: pitch,
+        rate: rate,
+        volume: volume,
+      );
 
       _isSpeaking = true;
       isSpeakingNotifier.value = true;

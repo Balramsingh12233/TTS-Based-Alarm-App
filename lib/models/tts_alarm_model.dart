@@ -31,7 +31,7 @@ class TtsAlarmModel {
     this.snoozeDurationMinutes = 5,
     this.repeatDays = const [1, 2, 3, 4, 5],
     this.isLoopEnabled = true,
-    this.voiceName = 'Aarav • Male • Hindi',
+    this.voiceName = 'Aarav • Hindi',
     this.fullScreenIntent = true,
     this.isSpecificDate = false,
   });
@@ -158,10 +158,18 @@ class TtsAlarmModel {
           ? List<int>.from(map['repeatDays'] as List)
           : const [1, 2, 3, 4, 5],
       isLoopEnabled: (map['isLoopEnabled'] as bool?) ?? true,
-      voiceName: (map['voiceName'] as String?) ?? 'Aarav • Male • Hindi',
+      voiceName: _normalizeVoiceName(map['voiceName'] as String?),
       fullScreenIntent: (map['fullScreenIntent'] as bool?) ?? true,
       isSpecificDate: (map['isSpecificDate'] as bool?) ?? false,
     );
+  }
+
+  static String _normalizeVoiceName(String? name) {
+    if (name == null || name.isEmpty) return 'Aarav • Hindi';
+    if (name.contains('Alex') || name.toLowerCase().contains('english') || name.contains('Sophia')) {
+      return 'Alex • English';
+    }
+    return 'Aarav • Hindi';
   }
 
   String toJson() => json.encode(toMap());

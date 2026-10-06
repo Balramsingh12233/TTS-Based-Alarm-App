@@ -111,6 +111,7 @@ class AlarmService {
       rate: model.speechRate,
       pitch: model.pitch,
       language: model.language,
+      voiceName: model.voiceName,
     );
 
     if (onAlarmTriggered != null) {
