@@ -38,6 +38,7 @@ class _AlarmListScreenState extends State<AlarmListScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _loadAlarms();
       // Show any alarm that fired while app was in background on unlocked screen
       final pending = pendingAlarm;
       if (pending != null) {
@@ -52,6 +53,7 @@ class _AlarmListScreenState extends State<AlarmListScreen>
   }
 
   Future<void> _loadAlarms() async {
+    await AlarmService().refreshRepeatingAlarms();
     final list = await StorageService.loadAlarms();
     // Sort alarms by next occurrence time
     list.sort((a, b) => a.dateTime.compareTo(b.dateTime));
@@ -66,22 +68,31 @@ class _AlarmListScreenState extends State<AlarmListScreen>
   Future<void> _toggleAlarm(TtsAlarmModel alarm, bool value) async {
     final updated = alarm.copyWith(isEnabled: value);
     if (value) {
-      var targetTime = updated.dateTime;
-      if (targetTime.isBefore(DateTime.now())) {
-        targetTime = targetTime.add(const Duration(days: 1));
+      DateTime targetTime;
+      if (updated.isSpecificDate) {
+        targetTime = updated.dateTime;
+        if (targetTime.isBefore(DateTime.now())) {
+          final now = DateTime.now();
+          targetTime = DateTime(now.year, now.month, now.day, targetTime.hour, targetTime.minute);
+          if (targetTime.isBefore(now)) {
+            targetTime = targetTime.add(const Duration(days: 1));
+          }
+        }
+      } else {
+        targetTime = updated.getNextOccurrence(from: DateTime.now());
       }
-      final toSchedule = updated.copyWith(dateTime: targetTime);
+      final toSchedule = updated.copyWith(dateTime: targetTime, isEnabled: true);
       await AlarmService().scheduleAlarm(toSchedule);
       await StorageService.upsertAlarm(toSchedule);
     } else {
-      await AlarmService().stopAlarm(alarm.id);
+      await AlarmService().stopAlarm(alarm.id, rescheduleRepeat: false);
       await StorageService.upsertAlarm(updated);
     }
     await _loadAlarms();
   }
 
   Future<void> _deleteAlarm(int id) async {
-    await AlarmService().stopAlarm(id);
+    await AlarmService().stopAlarm(id, rescheduleRepeat: false);
     await StorageService.deleteAlarm(id);
     await _loadAlarms();
   }
@@ -115,7 +126,19 @@ class _AlarmListScreenState extends State<AlarmListScreen>
     );
   }
 
-  String _formatRepeatDays(List<int> days) {
+  String _formatAlarmSchedule(TtsAlarmModel alarm) {
+    if (alarm.isSpecificDate) {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final alarmDay = DateTime(alarm.dateTime.year, alarm.dateTime.month, alarm.dateTime.day);
+      final daysDiff = alarmDay.difference(today).inDays;
+
+      if (daysDiff == 0) return 'Today (${DateFormat('MMM d').format(alarm.dateTime)})';
+      if (daysDiff == 1) return 'Tomorrow (${DateFormat('MMM d').format(alarm.dateTime)})';
+      return DateFormat('EEE, MMM d, yyyy').format(alarm.dateTime);
+    }
+
+    final days = alarm.repeatDays;
     if (days.isEmpty) return 'Once';
     if (days.length == 7) return 'Every day';
     if (days.length == 5 &&
@@ -126,8 +149,23 @@ class _AlarmListScreenState extends State<AlarmListScreen>
         days.contains(5)) {
       return 'Weekdays (Mon-Fri)';
     }
+    if (days.length == 2 && days.contains(6) && days.contains(7)) {
+      return 'Weekends (Sat-Sun)';
+    }
     const dayNames = {1: 'M', 2: 'T', 3: 'W', 4: 'T', 5: 'F', 6: 'S', 7: 'S'};
     return days.map((d) => dayNames[d] ?? '').join(' ');
+  }
+
+  String _formatNextOccurrence(TtsAlarmModel alarm) {
+    final next = alarm.dateTime;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final nextDay = DateTime(next.year, next.month, next.day);
+    final daysDiff = nextDay.difference(today).inDays;
+
+    if (daysDiff == 0) return 'Today';
+    if (daysDiff == 1) return 'Tomorrow';
+    return DateFormat('EEE, MMM d').format(next);
   }
 
   @override
@@ -255,6 +293,42 @@ class _AlarmListScreenState extends State<AlarmListScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Event / Alarm Label Pill (if custom)
+              if (alarm.label.isNotEmpty && alarm.label != 'TTS Alarm' && alarm.label != 'Alarm') ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: alarm.isSpecificDate ? const Color(0xFF261D12) : const Color(0xFF16253B),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: alarm.isSpecificDate
+                          ? const Color(0xFFF59E0B).withAlpha(120)
+                          : const Color(0xFF38BDF8).withAlpha(80),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        alarm.isSpecificDate ? Icons.event_note_rounded : Icons.label_important_rounded,
+                        color: alarm.isSpecificDate ? const Color(0xFFF59E0B) : const Color(0xFF38BDF8),
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        alarm.label,
+                        style: TextStyle(
+                          color: alarm.isSpecificDate ? const Color(0xFFFBBF24) : Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               // Top Row: Time & Switch
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -355,14 +429,34 @@ class _AlarmListScreenState extends State<AlarmListScreen>
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1C273C),
+                            color: alarm.isSpecificDate ? const Color(0xFF261D12) : const Color(0xFF1C273C),
                             borderRadius: BorderRadius.circular(8),
+                            border: alarm.isSpecificDate
+                                ? Border.all(color: const Color(0xFFF59E0B).withAlpha(100))
+                                : null,
                           ),
                           child: Text(
-                            _formatRepeatDays(alarm.repeatDays),
-                            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                            _formatAlarmSchedule(alarm),
+                            style: TextStyle(
+                              color: alarm.isSpecificDate ? const Color(0xFFFBBF24) : const Color(0xFF94A3B8),
+                              fontSize: 11,
+                              fontWeight: alarm.isSpecificDate ? FontWeight.w600 : FontWeight.normal,
+                            ),
                           ),
                         ),
+                        if (alarm.isEnabled && !alarm.isSpecificDate && alarm.repeatDays.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F261E),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFF10B981).withAlpha(80)),
+                            ),
+                            child: Text(
+                              'Next: ${_formatNextOccurrence(alarm)}',
+                              style: const TextStyle(color: Color(0xFF34D399), fontSize: 11, fontWeight: FontWeight.w600),
+                            ),
+                          ),
                       ],
                     ),
                   ),

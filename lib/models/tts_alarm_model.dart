@@ -16,6 +16,7 @@ class TtsAlarmModel {
   final bool isLoopEnabled;
   final String voiceName;
   final bool fullScreenIntent;
+  final bool isSpecificDate;
 
   const TtsAlarmModel({
     required this.id,
@@ -32,7 +33,57 @@ class TtsAlarmModel {
     this.isLoopEnabled = true,
     this.voiceName = 'Aarav • Male • Hindi',
     this.fullScreenIntent = true,
+    this.isSpecificDate = false,
   });
+
+  /// Computes the next valid trigger DateTime from a given reference point [from] (default: DateTime.now()).
+  DateTime getNextOccurrence({DateTime? from}) {
+    final now = from ?? DateTime.now();
+
+    // 1. If it's a specific date / event alarm, keep the user-chosen date
+    if (isSpecificDate) {
+      return dateTime;
+    }
+
+    // 2. If it's a recurring alarm with designated repeatDays (1 = Mon ... 7 = Sun)
+    if (repeatDays.isNotEmpty) {
+      for (int dayOffset = 0; dayOffset <= 7; dayOffset++) {
+        final candidateDate = now.add(Duration(days: dayOffset));
+        final candidate = DateTime(
+          candidateDate.year,
+          candidateDate.month,
+          candidateDate.day,
+          dateTime.hour,
+          dateTime.minute,
+          0,
+        );
+
+        if (repeatDays.contains(candidate.weekday)) {
+          if (dayOffset == 0) {
+            if (candidate.isAfter(now.add(const Duration(seconds: 10)))) {
+              return candidate;
+            }
+          } else {
+            return candidate;
+          }
+        }
+      }
+    }
+
+    // 3. One-time alarm (no specific repeat days): Today if still upcoming, else Tomorrow
+    var target = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      dateTime.hour,
+      dateTime.minute,
+      0,
+    );
+    if (target.isBefore(now.add(const Duration(seconds: 10)))) {
+      target = target.add(const Duration(days: 1));
+    }
+    return target;
+  }
 
   /// Copy with helper for immutability
   TtsAlarmModel copyWith({
@@ -50,6 +101,7 @@ class TtsAlarmModel {
     bool? isLoopEnabled,
     String? voiceName,
     bool? fullScreenIntent,
+    bool? isSpecificDate,
   }) {
     return TtsAlarmModel(
       id: id ?? this.id,
@@ -66,6 +118,7 @@ class TtsAlarmModel {
       isLoopEnabled: isLoopEnabled ?? this.isLoopEnabled,
       voiceName: voiceName ?? this.voiceName,
       fullScreenIntent: fullScreenIntent ?? this.fullScreenIntent,
+      isSpecificDate: isSpecificDate ?? this.isSpecificDate,
     );
   }
 
@@ -85,6 +138,7 @@ class TtsAlarmModel {
       'isLoopEnabled': isLoopEnabled,
       'voiceName': voiceName,
       'fullScreenIntent': fullScreenIntent,
+      'isSpecificDate': isSpecificDate,
     };
   }
 
@@ -106,6 +160,7 @@ class TtsAlarmModel {
       isLoopEnabled: (map['isLoopEnabled'] as bool?) ?? true,
       voiceName: (map['voiceName'] as String?) ?? 'Aarav • Male • Hindi',
       fullScreenIntent: (map['fullScreenIntent'] as bool?) ?? true,
+      isSpecificDate: (map['isSpecificDate'] as bool?) ?? false,
     );
   }
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../models/tts_alarm_model.dart';
 import '../services/alarm_service.dart';
 import '../services/storage_service.dart';
@@ -20,6 +21,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
   late int _selectedMinute;
   late bool _isAm;
   late TextEditingController _textController;
+  late TextEditingController _labelController;
   late bool _isLoopOn;
   late String _selectedVoice;
   late String _selectedLanguage;
@@ -27,6 +29,8 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
   late int _snoozeMinutes;
   late bool _isFullScreenPopUp;
   late double _selectedVolume; // 0.2 to 1.0
+  late bool _isSpecificDateMode;
+  late DateTime _selectedDate;
 
   late AnimationController _waveController;
   Timer? _countdownTimer;
@@ -50,6 +54,9 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       _selectedHour = hour24 == 0 ? 12 : (hour24 > 12 ? hour24 - 12 : hour24);
       _selectedMinute = alarm.dateTime.minute;
       _textController = TextEditingController(text: alarm.ttsMessage);
+      _labelController = TextEditingController(
+        text: (alarm.label == 'TTS Alarm' || alarm.label == 'Alarm') ? '' : alarm.label,
+      );
       _isLoopOn = alarm.isLoopEnabled;
       _selectedVoice = alarm.voiceName;
       _selectedLanguage = alarm.language;
@@ -57,6 +64,8 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       _snoozeMinutes = alarm.snoozeDurationMinutes;
       _isFullScreenPopUp = alarm.fullScreenIntent;
       _selectedVolume = alarm.volume;
+      _isSpecificDateMode = alarm.isSpecificDate;
+      _selectedDate = DateTime(alarm.dateTime.year, alarm.dateTime.month, alarm.dateTime.day);
     } else {
       _selectedHour = 6;
       _selectedMinute = 30;
@@ -64,13 +73,16 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       _textController = TextEditingController(
         text: 'Wake up, Gym time! Protein shake is on the table.',
       );
+      _labelController = TextEditingController();
       _isLoopOn = true;
       _selectedVoice = 'Aarav • Male • Hindi';
       _selectedLanguage = 'hi-IN';
-      _repeatDays = {1, 2, 3, 4, 5};
+      _repeatDays = {1, 2, 3, 4, 5, 6, 7}; // Default repeats everyday for next day guarantee
       _snoozeMinutes = 5;
       _isFullScreenPopUp = true;
       _selectedVolume = 1.0;
+      _isSpecificDateMode = false;
+      _selectedDate = DateTime.now();
     }
 
     _waveController = AnimationController(
@@ -89,6 +101,7 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
     _countdownTimer?.cancel();
     _volumePreviewDebounce?.cancel();
     _textController.dispose();
+    _labelController.dispose();
     TtsService().stop();
     super.dispose();
   }
@@ -102,28 +115,77 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
       if (hour24 != 12) hour24 += 12;
     }
 
-    var target = DateTime(now.year, now.month, now.day, hour24, _selectedMinute);
-    if (target.isBefore(now)) {
-      target = target.add(const Duration(days: 1));
+    if (_isSpecificDateMode) {
+      return DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        hour24,
+        _selectedMinute,
+      );
     }
-    return target;
+
+    // Build model to calculate exact next occurrence
+    final temp = TtsAlarmModel(
+      id: 0,
+      dateTime: DateTime(now.year, now.month, now.day, hour24, _selectedMinute),
+      ttsMessage: '',
+      repeatDays: _repeatDays.toList(),
+      isSpecificDate: false,
+    );
+    return temp.getNextOccurrence(from: now);
   }
 
   String _calculateTimeRemaining() {
     final target = _getTargetDateTime();
-    final diff = target.difference(DateTime.now());
-    final hours = diff.inHours;
+    final now = DateTime.now();
+    final diff = target.difference(now);
+
+    if (diff.isNegative) {
+      return 'Selected time has passed';
+    }
+
+    final days = diff.inDays;
+    final hours = diff.inHours % 24;
     final mins = diff.inMinutes % 60;
-    return 'Rings in ${hours}h ${mins}m';
+
+    if (days > 0) {
+      return 'Rings in ${days}d ${hours}h ${mins}m';
+    } else if (hours > 0) {
+      return 'Rings in ${hours}h ${mins}m';
+    } else {
+      return 'Rings in ${mins}m';
+    }
   }
 
   String _getSubtitle() {
     final target = _getTargetDateTime();
     final now = DateTime.now();
-    if (target.day == now.day) {
-      return 'Tonight';
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDay = DateTime(target.year, target.month, target.day);
+    final daysDiff = targetDay.difference(today).inDays;
+
+    if (_isSpecificDateMode) {
+      if (daysDiff == 0) return 'Today';
+      if (daysDiff == 1) return 'Tomorrow';
+      return DateFormat('EEE, MMM d').format(target);
     } else {
-      return 'Tomorrow';
+      if (_repeatDays.length == 7) return 'Every day';
+      if (_repeatDays.length == 5 &&
+          _repeatDays.contains(1) &&
+          _repeatDays.contains(2) &&
+          _repeatDays.contains(3) &&
+          _repeatDays.contains(4) &&
+          _repeatDays.contains(5)) {
+        return 'Weekdays (Mon-Fri)';
+      }
+      if (_repeatDays.isEmpty) {
+        if (daysDiff == 0) return 'Today (Once)';
+        return 'Tomorrow (Once)';
+      }
+      if (daysDiff == 0) return 'Today';
+      if (daysDiff == 1) return 'Tomorrow';
+      return DateFormat('EEEE').format(target);
     }
   }
 
@@ -230,24 +292,60 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
     );
   }
 
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final initial = _selectedDate.isBefore(now) ? now : _selectedDate;
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365 * 5)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Color(0xFFF59E0B),
+              onPrimary: Colors.black,
+              surface: Color(0xFF131B2A),
+              onSurface: Colors.white,
+            ),
+            dialogTheme: const DialogThemeData(backgroundColor: Color(0xFF131B2A)),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
   Future<void> _saveAlarm() async {
     final target = _getTargetDateTime();
     final id = widget.existingAlarm?.id ?? (DateTime.now().millisecondsSinceEpoch % 100000);
     final text = _textController.text.trim();
+    final customLabel = _labelController.text.trim();
 
     final alarmModel = TtsAlarmModel(
       id: id,
       dateTime: target,
       ttsMessage: text.isNotEmpty ? text : 'Wake up! It is time for your alarm.',
-      label: 'TTS Alarm',
+      label: customLabel.isNotEmpty
+          ? customLabel
+          : (_isSpecificDateMode ? 'Event Reminder' : 'TTS Alarm'),
       isEnabled: true,
       volume: _selectedVolume,
       language: _selectedLanguage,
-      repeatDays: _repeatDays.toList(),
+      repeatDays: _isSpecificDateMode ? [] : _repeatDays.toList(),
       isLoopEnabled: _isLoopOn,
       voiceName: _selectedVoice,
       fullScreenIntent: _isFullScreenPopUp,
       snoozeDurationMinutes: _snoozeMinutes,
+      isSpecificDate: _isSpecificDateMode,
     );
 
     await AlarmService().scheduleAlarm(alarmModel);
@@ -278,6 +376,14 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
                 physics: const BouncingScrollPhysics(),
                 child: Column(
                   children: [
+                    // Mode Switcher: Recurring Days vs Specific Date / Event
+                    _buildModeSwitcher(),
+
+                    // Specific Date & Event Card (Visible when in Date/Event mode)
+                    if (_isSpecificDateMode) ...[
+                      _buildSpecificDateAndEventCard(),
+                    ],
+
                     // Card 1: Time Picker Card (Fixed RenderFlex overflow)
                     _buildTimePickerCard(),
                     const SizedBox(height: 16),
@@ -1028,58 +1134,182 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
           ),
           const SizedBox(height: 12),
 
-          // Repeat Row Header
-          const Text(
-            'Repeat',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Days chips: [M] [T] [W] [T] [F] [S] [S]
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(7, (index) {
-              final dayNum = index + 1; // 1 = Mon ... 7 = Sun
-              final isSelected = _repeatDays.contains(dayNum);
-
-              return InkWell(
-                onTap: () {
-                  setState(() {
-                    if (isSelected) {
-                      _repeatDays.remove(dayNum);
-                    } else {
-                      _repeatDays.add(dayNum);
-                    }
-                  });
-                },
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  width: 38,
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF162030),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF243248),
-                    ),
-                  ),
-                  child: Text(
-                    days[index],
-                    style: TextStyle(
-                      color: isSelected ? Colors.black : const Color(0xFF94A3B8),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
+          // Repeat or Date-Specific Info Section
+          if (!_isSpecificDateMode) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Repeat Schedule',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              );
-            }),
-          ),
+                Text(
+                  _formatRepeatSummary(),
+                  style: const TextStyle(
+                    color: Color(0xFFF59E0B),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // Repeat Preset Chips: Every Day, Weekdays, Weekends, Once
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _buildRepeatPresetChip(
+                  label: 'Every day',
+                  isSelected: _repeatDays.length == 7,
+                  onTap: () => setState(() => _repeatDays = {1, 2, 3, 4, 5, 6, 7}),
+                ),
+                _buildRepeatPresetChip(
+                  label: 'Weekdays (Mon-Fri)',
+                  isSelected: _repeatDays.length == 5 &&
+                      _repeatDays.contains(1) &&
+                      _repeatDays.contains(2) &&
+                      _repeatDays.contains(3) &&
+                      _repeatDays.contains(4) &&
+                      _repeatDays.contains(5),
+                  onTap: () => setState(() => _repeatDays = {1, 2, 3, 4, 5}),
+                ),
+                _buildRepeatPresetChip(
+                  label: 'Weekends (Sat-Sun)',
+                  isSelected: _repeatDays.length == 2 &&
+                      _repeatDays.contains(6) &&
+                      _repeatDays.contains(7),
+                  onTap: () => setState(() => _repeatDays = {6, 7}),
+                ),
+                _buildRepeatPresetChip(
+                  label: 'Once (No repeat)',
+                  isSelected: _repeatDays.isEmpty,
+                  onTap: () => setState(() => _repeatDays.clear()),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            // Days chips: [M] [T] [W] [T] [F] [S] [S]
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: List.generate(7, (index) {
+                final dayNum = index + 1; // 1 = Mon ... 7 = Sun
+                final isSelected = _repeatDays.contains(dayNum);
+
+                return InkWell(
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) {
+                        _repeatDays.remove(dayNum);
+                      } else {
+                        _repeatDays.add(dayNum);
+                      }
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF162030),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF243248),
+                      ),
+                    ),
+                    child: Text(
+                      days[index],
+                      style: TextStyle(
+                        color: isSelected ? Colors.black : const Color(0xFF94A3B8),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 18),
+
+            // Alarm Routine Label input for Recurring alarms
+            const Text(
+              'Alarm Routine / Label',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF0E1522),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF243248)),
+              ),
+              child: TextField(
+                controller: _labelController,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'e.g. Morning Routine, Gym, Daily Medicine',
+                  hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                  prefixIcon: const Icon(Icons.label_outline_rounded, color: Color(0xFFF59E0B), size: 18),
+                  suffixIcon: _labelController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, color: Colors.white54, size: 16),
+                          onPressed: () => setState(() => _labelController.clear()),
+                        )
+                      : null,
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _buildRoutineSuggestionChip('🌅 Morning', 'Wake up! Rise and shine for a productive day.'),
+                _buildRoutineSuggestionChip('🏋️ Workout', 'Time for workout! Stay active and energetic.'),
+                _buildRoutineSuggestionChip('💊 Medicine', 'Time to take your scheduled medicine.'),
+                _buildRoutineSuggestionChip('📚 Study', 'Study session time! Let us focus.'),
+              ],
+            ),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0E1522),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFF59E0B).withAlpha(60)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, color: Color(0xFFF59E0B), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Specific Date Event: Rings on ${DateFormat('EEE, MMM d, yyyy').format(_selectedDate)}. Will not repeat after being dismissed.',
+                      style: const TextStyle(
+                        color: Color(0xFFCBD5E1),
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
 
           // Snooze selector row
@@ -1244,5 +1474,457 @@ class _CreateEditAlarmScreenState extends State<CreateEditAlarmScreen>
         ],
       ),
     );
+  }
+
+  Widget _buildModeSwitcher() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2A),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF202C3F)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: () {
+                setState(() {
+                  _isSpecificDateMode = false;
+                  if (_repeatDays.isEmpty) {
+                    _repeatDays = {1, 2, 3, 4, 5, 6, 7};
+                  }
+                });
+              },
+              borderRadius: BorderRadius.circular(12),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: !_isSpecificDateMode ? const Color(0xFFF59E0B) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.repeat_rounded,
+                      size: 18,
+                      color: !_isSpecificDateMode ? Colors.black : const Color(0xFF94A3B8),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Recurring / Daily',
+                      style: TextStyle(
+                        color: !_isSpecificDateMode ? Colors.black : const Color(0xFF94A3B8),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: () {
+                setState(() {
+                  _isSpecificDateMode = true;
+                });
+              },
+              borderRadius: BorderRadius.circular(12),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _isSpecificDateMode ? const Color(0xFFF59E0B) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.event_note_rounded,
+                      size: 18,
+                      color: _isSpecificDateMode ? Colors.black : const Color(0xFF94A3B8),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Specific Date / Event',
+                      style: TextStyle(
+                        color: _isSpecificDateMode ? Colors.black : const Color(0xFF94A3B8),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpecificDateAndEventCard() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final selectedDay = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    final daysDiff = selectedDay.difference(today).inDays;
+
+    String dateLabel;
+    if (daysDiff == 0) {
+      dateLabel = 'Today • ${DateFormat('EEEE, MMM d, yyyy').format(_selectedDate)}';
+    } else if (daysDiff == 1) {
+      dateLabel = 'Tomorrow • ${DateFormat('EEEE, MMM d, yyyy').format(_selectedDate)}';
+    } else {
+      dateLabel = DateFormat('EEEE, MMM d, yyyy').format(_selectedDate);
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131B2A),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFF59E0B).withAlpha(120), width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.calendar_month_rounded, color: Color(0xFFF59E0B), size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Alarm Date & Event',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF261D12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFF59E0B).withAlpha(80)),
+                ),
+                child: const Text(
+                  'One-Time Event',
+                  style: TextStyle(
+                    color: Color(0xFFFBBF24),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Date Card with calendar picker action
+          InkWell(
+            onTap: _pickDate,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0E1522),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF243248)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.event_available_rounded, color: Color(0xFFF59E0B), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          dateLabel,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Tap to select an exact date on calendar',
+                          style: TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1F2B3E),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      'Calendar',
+                      style: TextStyle(
+                        color: Color(0xFF38BDF8),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Quick Date Chips: Today, Tomorrow, In 2 Days, In 1 Week
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildQuickDateChip(
+                label: 'Today',
+                isSelected: daysDiff == 0,
+                onTap: () => setState(() => _selectedDate = DateTime.now()),
+              ),
+              _buildQuickDateChip(
+                label: 'Tomorrow',
+                isSelected: daysDiff == 1,
+                onTap: () => setState(() => _selectedDate = DateTime.now().add(const Duration(days: 1))),
+              ),
+              _buildQuickDateChip(
+                label: 'In 2 Days',
+                isSelected: daysDiff == 2,
+                onTap: () => setState(() => _selectedDate = DateTime.now().add(const Duration(days: 2))),
+              ),
+              _buildQuickDateChip(
+                label: 'In 1 Week',
+                isSelected: daysDiff == 7,
+                onTap: () => setState(() => _selectedDate = DateTime.now().add(const Duration(days: 7))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Event / Alarm Label Field
+          const Text(
+            'Event Name / Alarm Label',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF0E1522),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF243248)),
+            ),
+            child: TextField(
+              controller: _labelController,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'e.g. Flight, Doctor Appointment, Birthday, Gym',
+                hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                prefixIcon: const Icon(Icons.label_important_outline_rounded, color: Color(0xFFF59E0B), size: 20),
+                suffixIcon: _labelController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, color: Colors.white54, size: 18),
+                        onPressed: () => setState(() => _labelController.clear()),
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Quick Event Suggestions
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _buildEventSuggestionChip('✈️ Flight', 'Time to get ready! Your flight is scheduled today.'),
+              _buildEventSuggestionChip('💊 Medicine', 'Time to take your scheduled medicine.'),
+              _buildEventSuggestionChip('💼 Meeting', 'Wake up! You have an important meeting coming up.'),
+              _buildEventSuggestionChip('🎂 Birthday', 'Wake up! Special birthday celebration today!'),
+              _buildEventSuggestionChip('🏋️ Gym', 'Time for workout! Grab your water and gear.'),
+              _buildEventSuggestionChip('🎓 Exam/Class', 'Time to prepare for your exam and class today.'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickDateChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF162030),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF243248),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.black : const Color(0xFFCBD5E1),
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRepeatPresetChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFF59E0B).withAlpha(40) : const Color(0xFF162030),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF243248),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? const Color(0xFFF59E0B) : const Color(0xFF94A3B8),
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEventSuggestionChip(String label, String message) {
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _labelController.text = label.replaceFirst(RegExp(r'^[^\w\s]+\s*'), '');
+          if (_textController.text.trim().isEmpty ||
+              _textController.text.startsWith('Wake up, Gym') ||
+              _textController.text.startsWith('Wake up!')) {
+            _textController.text = message;
+          }
+        });
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF162030),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFF243248)),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Color(0xFF94A3B8),
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoutineSuggestionChip(String label, String message) {
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _labelController.text = label.replaceFirst(RegExp(r'^[^\w\s]+\s*'), '');
+          if (_textController.text.trim().isEmpty ||
+              _textController.text.startsWith('Wake up, Gym') ||
+              _textController.text.startsWith('Wake up!')) {
+            _textController.text = message;
+          }
+        });
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF162030),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFF243248)),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Color(0xFF94A3B8),
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatRepeatSummary() {
+    if (_repeatDays.length == 7) return 'Every day';
+    if (_repeatDays.length == 5 &&
+        _repeatDays.contains(1) &&
+        _repeatDays.contains(2) &&
+        _repeatDays.contains(3) &&
+        _repeatDays.contains(4) &&
+        _repeatDays.contains(5)) {
+      return 'Weekdays (Mon-Fri)';
+    }
+    if (_repeatDays.length == 2 &&
+        _repeatDays.contains(6) &&
+        _repeatDays.contains(7)) {
+      return 'Weekends (Sat-Sun)';
+    }
+    if (_repeatDays.isEmpty) return 'Once (No repeat)';
+    const dayNames = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'};
+    return _repeatDays.map((d) => dayNames[d] ?? '').join(', ');
   }
 }

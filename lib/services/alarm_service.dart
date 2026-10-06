@@ -39,6 +39,48 @@ class AlarmService {
         }
       }
     });
+
+    // Refresh repeating alarms and roll forward any overdue alarms
+    await refreshRepeatingAlarms();
+  }
+
+  /// Validates all alarms in storage and ensures upcoming alarms are properly scheduled,
+  /// and any repeating alarms whose time has passed are rolled forward to their next occurrence.
+  Future<void> refreshRepeatingAlarms() async {
+    try {
+      final allAlarms = await StorageService.loadAlarms();
+      final now = DateTime.now();
+
+      for (final alarm in allAlarms) {
+        if (!alarm.isEnabled) continue;
+
+        if (!alarm.isSpecificDate && alarm.repeatDays.isNotEmpty) {
+          // If the scheduled time has already passed
+          if (alarm.dateTime.isBefore(now)) {
+            final nextDateTime = alarm.getNextOccurrence(from: now);
+            final updated = alarm.copyWith(dateTime: nextDateTime, isEnabled: true);
+            await StorageService.upsertAlarm(updated);
+            await scheduleAlarm(updated);
+            debugPrint('Rolled forward past repeating alarm ${alarm.id} to $nextDateTime');
+          } else {
+            // Ensure registered with Alarm package
+            await scheduleAlarm(alarm);
+          }
+        } else {
+          // One-time or specific-date alarm
+          // If it passed more than 15 minutes ago, mark as disabled
+          if (alarm.dateTime.isBefore(now.subtract(const Duration(minutes: 15)))) {
+            final updated = alarm.copyWith(isEnabled: false);
+            await StorageService.upsertAlarm(updated);
+            debugPrint('Deactivated expired one-time alarm ${alarm.id}');
+          } else if (alarm.dateTime.isAfter(now)) {
+            await scheduleAlarm(alarm);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error refreshing alarms: $e');
+    }
   }
 
   Future<void> _handleAlarmRing(AlarmSettings settings) async {
@@ -110,8 +152,10 @@ class AlarmService {
     }
   }
 
-  /// Stop the alarm sound and TTS speech
-  Future<void> stopAlarm(int id) async {
+  /// Stop the alarm sound and TTS speech.
+  /// If [rescheduleRepeat] is true and the alarm is configured to repeat,
+  /// automatically schedules its next occurrence. Otherwise marks one-time alarms as disabled.
+  Future<void> stopAlarm(int id, {bool rescheduleRepeat = true}) async {
     try {
       _activeRingingIds.remove(id);
       await Alarm.stop(id);
@@ -119,6 +163,28 @@ class AlarmService {
         await _ttsService.stop();
       }
       debugPrint('Alarm $id stopped successfully');
+
+      if (rescheduleRepeat) {
+        final allAlarms = await StorageService.loadAlarms();
+        final index = allAlarms.indexWhere((a) => a.id == id);
+        if (index != -1) {
+          final alarm = allAlarms[index];
+          if (!alarm.isSpecificDate && alarm.repeatDays.isNotEmpty) {
+            final nextDateTime = alarm.getNextOccurrence(from: DateTime.now());
+            final updatedAlarm = alarm.copyWith(
+              dateTime: nextDateTime,
+              isEnabled: true,
+            );
+            await StorageService.upsertAlarm(updatedAlarm);
+            await scheduleAlarm(updatedAlarm);
+            debugPrint('Repeating alarm $id automatically rescheduled for next occurrence: $nextDateTime');
+          } else {
+            final updatedAlarm = alarm.copyWith(isEnabled: false);
+            await StorageService.upsertAlarm(updatedAlarm);
+            debugPrint('One-time/event alarm $id marked as finished/disabled');
+          }
+        }
+      }
     } catch (e) {
       debugPrint('Error stopping alarm: $e');
     }
@@ -127,7 +193,8 @@ class AlarmService {
   /// Snooze the alarm for given minutes
   Future<void> snoozeAlarm(TtsAlarmModel model, {int? snoozeMinutes}) async {
     final minutes = snoozeMinutes ?? model.snoozeDurationMinutes;
-    await stopAlarm(model.id);
+    // Stop ringing without rescheduling repeating cycle yet
+    await stopAlarm(model.id, rescheduleRepeat: false);
 
     final snoozedTime = DateTime.now().add(Duration(minutes: minutes));
     final snoozedModel = model.copyWith(dateTime: snoozedTime);
